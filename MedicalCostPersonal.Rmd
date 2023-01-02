@@ -1,0 +1,28 @@
+---
+title: "MedicalCostPersonal"
+author: "Beyza Özen"
+date: "2023-01-02"
+output: pdf_document
+---
+
+### Import libraries
+
+```{r}
+library(dplyr)
+library(readr)
+```
+
+### Read Data
+
+```{r}
+url <- "https://raw.githubusercontent.com/beyzaozen/MedicalCostPersonal/main/insurance.csv"
+data <- read_csv(url)
+```
+
+## Exploratory Data Analysis
+
+-   General Information
+
+```{r}
+head(data)
+```
