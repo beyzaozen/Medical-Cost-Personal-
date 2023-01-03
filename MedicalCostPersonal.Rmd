@@ -7,22 +7,193 @@ output: pdf_document
 
 ### Import libraries
 
-```{r}
+```{r warning=FALSE}
 library(dplyr)
+library(tidyverse)
 library(readr)
+library(janitor)
+library(ggplot2)
+library(psych)
 ```
 
 ### Read Data
 
-```{r}
+```{r warning=FALSE}
 url <- "https://raw.githubusercontent.com/beyzaozen/MedicalCostPersonal/main/insurance.csv"
 data <- read_csv(url)
 ```
 
 ## Exploratory Data Analysis
 
--   General Information
+-   General Information The data contains 7 columns with 1338 lines. 4 of them are numerical and 3 are characters.
 
 ```{r}
-head(data)
+glimpse(data)
 ```
+
+There is no column without a value. So no need for cleaning or replacing na values.
+
+```{r warning=FALSE}
+data %>% select(everything()) %>%  # replace to your needs
+  summarise_all(funs(sum(is.na(.))))
+```
+
+There is one row repeating in the dataframe, so I deleted the repeating row
+
+```{r warning=FALSE}
+data %>% get_dupes()
+
+data<- data %>% distinct()
+
+```
+
+Check for number of unique observations for categorical values. For column "smoker", it can be factorized since it has yes and no as values. For sex and region, we need to use one-hot encoding for conveniene.
+
+```{r}
+sapply(data, is.character)
+
+table(data$sex)
+
+table(data$smoker)
+
+table(data$region)
+
+```
+
+```{r}
+data %>%
+  tabyl(region, sex) %>%
+  adorn_percentages("row") %>%
+  adorn_pct_formatting() 
+
+data %>%
+  tabyl(region, smoker) %>%
+  adorn_percentages("row") %>%
+  adorn_pct_formatting() 
+
+data %>%
+  tabyl(smoker, sex) %>%
+  adorn_percentages("row") %>%
+  adorn_pct_formatting() 
+```
+
+```{r}
+data %>%   
+  select_if(is.numeric) %>% 
+  gather(var,value) %>% 
+  ggplot(aes(x = value))+
+  geom_histogram()+
+  facet_wrap(~var, scales = "free")
+```
+
+Inspecting data properties for anomalies before plotting.
+
+```{r}
+data %>% select_if(is.numeric) %>% summary
+```
+
+Changing smoker column to numeric by replacing yes and no with 1 and 0 values.
+
+```{r}
+#data$smoker[data$smoker == "yes"]<-1
+#data$smoker[data$smoker == "no"]<-0
+#data$smoker<-as.integer(data$smoker)
+```
+
+```{r}
+#data$sex[data$sex == "female"]<-1
+#data$sex[data$sex == "male"]<-0
+#data$sex<-as.integer(data$sex)
+#sapply(data, is.character)
+```
+
+```{r}
+pairs.panels(data[c("age", "bmi", "children", "charges")])
+```
+
+```{r}
+  data %>% ggplot() +
+    geom_point(aes(age, charges, colour = sex)) +
+    geom_smooth(aes(age, charges), method  = "lm")
+```
+
+The graph below show a clear distinction between smokers and nonsmokers
+
+```{r}
+  data %>% ggplot() +
+    geom_point(aes(age, charges, colour = smoker)) +
+    geom_smooth(aes(age, charges), method  = "lm")
+```
+```{r}
+ggplot(data,aes(age, charges, colour = smoker)) +
+     geom_point() +
+     geom_smooth(data = data %>% filter(charges<15000), method  = "lm", color = "yellow")+
+     geom_smooth(data = data %>% filter(charges>30000), method  = "lm", color = "green")+
+     geom_smooth(data = data %>% filter(charges>15000 & charges<30000), method  = "lm", color = "blue")+
+    geom_text(aes(x = 30, y = 15000, label = "charges>15000"), color = "yellow")+ 
+  geom_text(aes(x = 30, y = 45000, label = "charges>30000"), color = "green")+ 
+  geom_text(aes(x = 30, y = 30000, label = "charges>15000 & charges<30000"), color = "blue")
+```
+  
+  - group one, charges < 10k, represents 53% (712/1338) of customers and all are non-smokers.
+  - group two, charges > 10k but < 30k, represents 35% of customers among which 27% (122/464) are smokers.
+  - group three, charges > 30k, represents 12% of customers among which 94% are smokers.
+
+The graph below shows that, we can divide the data as ( bmi\<30 or not ) and (smoker or not)
+
+```{r warning=FALSE}
+  data %>% ggplot() +
+    geom_point(aes(bmi, charges, colour = age, size = smoker)) 
+    # + geom_smooth(aes(bmi, charges), method  = "lm")
+```
+
+```{r}
+data %>% filter(bmi<=30  & smoker == "yes") %>%
+{  ggplot(.) +
+    geom_point(aes(bmi, charges, colour = age)) +
+    labs(title=paste("bmi vs charges for smoker = ", .$smoker[1]))}
+
+data %>% filter(bmi<=30  & smoker == "no") %>%
+{  ggplot(.) +
+    geom_point(aes(bmi, charges, colour = age)) +
+    labs(title=paste("bmi vs charges for smoker = ", .$smoker[1]))}
+
+data %>% filter(bmi>30  & smoker == "yes") %>%
+{  ggplot(.) +
+    geom_point(aes(bmi, charges, colour = age)) +
+    labs(title=paste("bmi vs charges for smoker = ", .$smoker[1]))}
+
+data %>% filter(bmi>30  & smoker == "no") %>%
+  {ggplot(.) +
+    geom_point(aes(bmi, charges, colour = age)) +
+    labs(title=paste("bmi vs charges for smoker = ", .$smoker[1]))}
+```
+
+
+
+```{r}
+pairs.panels(data %>% 
+               filter(bmi>30  & smoker == "yes") %>%
+               select(c("age", "bmi", "children", "charges")),
+             main = "bmi>30 vs charges for smoker = yes ")
+
+pairs.panels(data %>% 
+               filter(bmi>30  & smoker == "no") %>%
+               select(c("age", "bmi", "children", "charges")),
+             main = "bmi>30 vs charges for smoker = no ")
+
+pairs.panels(data %>% 
+               filter(bmi<=30  & smoker == "yes") %>%
+               select(c("age", "bmi", "children", "charges")),
+             main = "bmi<=30 vs charges for smoker = yes ")
+
+pairs.panels(data %>% 
+               filter(bmi<=30  & smoker == "no") %>%
+               select(c("age", "bmi", "children", "charges")),
+             main = "bmi<=30 vs charges for smoker = no ")
+```
+
+
+
+
+
