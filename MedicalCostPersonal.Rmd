@@ -14,6 +14,7 @@ library(readr)
 library(janitor)
 library(ggplot2)
 library(psych)
+library(rafalib)
 ```
 
 ### Read Data
@@ -107,6 +108,8 @@ Changing smoker column to numeric by replacing yes and no with 1 and 0 values.
 #sapply(data, is.character)
 ```
 
+The oval-shaped object on each scatterplot is a correlation ellipse. It provides a visualization of how strongly correlated the variables are. The dot at the center of the ellipse indicates the point of the mean value for the x axis variable and y axis variable. The correlation between the two variables is indicated by the shape of the ellipse; the more it is stretched, the stronger the correlation. An almost perfectly round oval, as with bmi and children, indicates a very weak correlation
+
 ```{r}
 pairs.panels(data[c("age", "bmi", "children", "charges")])
 ```
@@ -124,20 +127,31 @@ The graph below show a clear distinction between smokers and nonsmokers
     geom_point(aes(age, charges, colour = smoker)) +
     geom_smooth(aes(age, charges), method  = "lm")
 ```
+
 ```{r}
 ggplot(data,aes(age, charges, colour = smoker)) +
      geom_point() +
      geom_smooth(data = data %>% filter(charges<15000), method  = "lm", color = "yellow")+
      geom_smooth(data = data %>% filter(charges>30000), method  = "lm", color = "green")+
      geom_smooth(data = data %>% filter(charges>15000 & charges<30000), method  = "lm", color = "blue")+
-    geom_text(aes(x = 30, y = 15000, label = "charges>15000"), color = "yellow")+ 
+    geom_text(aes(x = 30, y = 15000, label = "charges<15000"), color = "yellow")+ 
   geom_text(aes(x = 30, y = 45000, label = "charges>30000"), color = "green")+ 
   geom_text(aes(x = 30, y = 30000, label = "charges>15000 & charges<30000"), color = "blue")
 ```
-  
-  - group one, charges < 10k, represents 53% (712/1338) of customers and all are non-smokers.
-  - group two, charges > 10k but < 30k, represents 35% of customers among which 27% (122/464) are smokers.
-  - group three, charges > 30k, represents 12% of customers among which 94% are smokers.
+
+```{r}
+data %>% 
+  mutate(charges_cut = cut(data$charges, c(-Inf, 15000, 30000, Inf), labels=c("<15000", "15000<_<30000", ">30000"))) %>% 
+  tabyl(charges_cut, smoker) %>%
+  adorn_percentages("row") %>%
+  adorn_pct_formatting() 
+
+table(charges_cut = cut(data$charges, c(-Inf, 15000, 30000, Inf), labels=c("low", "mid", "high")))
+```
+
+-   group one, charges \< 15k, represents 73% (979/1338) of customers and 99.3% are non-smokers.
+-   group two, charges \> 15k but \< 30k, represents 14% (196/1338)of customers among which 58.7% are smokers.
+-   group three, charges \> 30k, represents 12% of customers among which 98.8% are smokers.
 
 The graph below shows that, we can divide the data as ( bmi\<30 or not ) and (smoker or not)
 
@@ -169,9 +183,8 @@ data %>% filter(bmi>30  & smoker == "no") %>%
     labs(title=paste("bmi vs charges for smoker = ", .$smoker[1]))}
 ```
 
-
-
 ```{r}
+
 pairs.panels(data %>% 
                filter(bmi>30  & smoker == "yes") %>%
                select(c("age", "bmi", "children", "charges")),
@@ -193,7 +206,44 @@ pairs.panels(data %>%
              main = "bmi<=30 vs charges for smoker = no ")
 ```
 
+## Residuals Normality assumption
 
+-   Quantile-Quantile (QQ) plots helps determine if data follows a selected distribution, here we are testing for normality; the closer the standardized residuals to the 45 degree line the closer the data is to being approximately normally distributed.
+
+-   You give it a vector of data and R plots the data in sorted order versus quantiles from a standard Normal distribution.
+
+-   Residuals used in QQ plots are standardized so it is easier to spot outliers (points drifting away from line)
+
+-   Despite that 'bmi' violates residual equal variance assumption, residuals are approximately normally distributed. We are actually not looking for perfect normality rather approximate normality.
+
+```{r}
+mypar(2,2)
+name = colnames(data %>% select_if(is.numeric))
+for(i in name){
+  qqnorm(data[[i]], main=paste0("Normal Q-Q Plot for ",i))
+  qqline(data[[i]])
+}
+```
+
+## Hypothesis testing
+The Wilcoxon signed-rank test is a non-parametric statistical hypothesis test used to compare two related samples, matched samples, or repeated measurements on a single sample to estimate whether their population means ranks differ e.g it is a paired difference test. 
+
+  H0: There is no difference in the distribution scores.
+  HA: There is a difference in the distribution scores.
+
+From the test below, we can observe that for smoker and divided bmi, the p values are too small (less than 5% significance level) so that we can reject the null hypothesis. We conclude that charges are significantly different between smokers and non-smokers as well as people with low bmi and people with high bmi. 
+
+However, there is no significant difference bewteen male and female observations. (p=0.7 > 0.05)
+
+
+```{r}
+wilcox.test(data$charges ~ data$smoker)
+wilcox.test(data$charges ~ data$sex)
+
+bmi_category <- ifelse(data$bmi>=30, "low", "high")
+
+wilcox.test(data$charges ~ bmi_category)
+```
 
 
 
