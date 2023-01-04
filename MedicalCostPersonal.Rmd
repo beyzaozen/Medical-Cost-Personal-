@@ -7,7 +7,7 @@ output: pdf_document
 
 ### Import libraries
 
-```{r warning=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 library(dplyr)
 library(tidyverse)
 library(readr)
@@ -15,6 +15,7 @@ library(janitor)
 library(ggplot2)
 library(psych)
 library(rafalib)
+library(jtools)
 ```
 
 ### Read Data
@@ -221,20 +222,35 @@ mypar(2,2)
 name = colnames(data %>% select_if(is.numeric))
 for(i in name){
   qqnorm(data[[i]], main=paste0("Normal Q-Q Plot for ",i))
-  qqline(data[[i]])
+  qqline(data[[i]],col="red",lty=2,lwd=2)
 }
 ```
 
+The qq plot is also indicating that log(charges) is approximately normal.Now we can notice that the data has become of approximately of normal distribution shape.
+
+Analyzing the outliers in log(charges)
+
+```{r}
+qqnorm(log(data$charges))
+qqline(log(data$charges),col="red",lty=2,lwd=2)
+```
+
+The box plot also indicate that there are no outliers in log(charges).
+
+```{r}
+boxplot(log(data$charges))
+boxplot(data$charges)
+```
+
 ## Hypothesis testing
-The Wilcoxon signed-rank test is a non-parametric statistical hypothesis test used to compare two related samples, matched samples, or repeated measurements on a single sample to estimate whether their population means ranks differ e.g it is a paired difference test. 
 
-  H0: There is no difference in the distribution scores.
-  HA: There is a difference in the distribution scores.
+The Wilcoxon signed-rank test is a non-parametric statistical hypothesis test used to compare two related samples, matched samples, or repeated measurements on a single sample to estimate whether their population means ranks differ e.g it is a paired difference test.
 
-From the test below, we can observe that for smoker and divided bmi, the p values are too small (less than 5% significance level) so that we can reject the null hypothesis. We conclude that charges are significantly different between smokers and non-smokers as well as people with low bmi and people with high bmi. 
+H0: There is no difference in the distribution scores. HA: There is a difference in the distribution scores.
 
-However, there is no significant difference bewteen male and female observations. (p=0.7 > 0.05)
+From the test below, we can observe that for smoker and divided bmi, the p values are too small (less than 5% significance level) so that we can reject the null hypothesis. We conclude that charges are significantly different between smokers and non-smokers as well as people with low bmi and people with high bmi.
 
+However, there is no significant difference between male and female observations. (p=0.7 \> 0.05)
 
 ```{r}
 wilcox.test(data$charges ~ data$smoker)
@@ -245,5 +261,171 @@ bmi_category <- ifelse(data$bmi>=30, "low", "high")
 wilcox.test(data$charges ~ bmi_category)
 ```
 
+Kruskal-Wallis test was performed to determine if the mean charge difference between regions are significant. The tests showed that the difference between the median medical charges in different regions is not significant.
 
+```{r}
+kruskal.test(charges ~ region, data = data)
+pairwise.wilcox.test(data$charges, data$region, p.adj = "BH")$p.value < 0.05
+```
 
+## Multiple Linear Regression
+
+Multiple linear regression (MLR) models allow for effective summarisation of multivariate datasets. It is an extension of the single linear regression in which instead of one independent variable, multiple independent variables are used to predict the value of the response variable.
+
+```{r}
+charges_hist <- data %>%
+    ggplot(aes(x=charges)) +
+    geom_histogram(binwidth = 2000,
+        show.legend = FALSE,
+        fill = "#FFC300")+
+    labs(x = "Charges to policyholders ($)",
+        y = "Number of policyholders",
+        title = "Distribution of medical charges")+
+    theme(plot.title = element_text(size=16),
+        axis.text = element_text(size=14),
+        axis.title = element_text(size=14))
+
+charges_hist_log10 <- data %>%
+    ggplot(aes(x=log10(charges))) +
+    geom_histogram(show.legend = FALSE,fill = "#FFC300")+
+    labs(x = "Charges to policyholders log10 transformed",
+        y = "Number of policyholders",
+        title = "Distribution of medical charges after log10 transform")+
+    theme(plot.title = element_text(size=16),
+        axis.text = element_text(size=14),
+        axis.title = element_text(size=14))
+cowplot::plot_grid(charges_hist, charges_hist_log10,
+    labels="AUTO",ncol = 2,nrow = 1)
+```
+
+The hypotheses for this model are such:
+
+-   **Null hypothesis**: there will be no significant prediction of medical expenses by the policyholder's smoking status, BMI score, age, region of residence, sex, and number of dependents covered by the policy.
+-   **Alternative hypothesis**: there will be significant prediction based on the above mentioned factors.
+
+The first step in interpreting the multiple regression analysis is to examine the **F-statistic** and the associated p-value. When **p-value** of the F-statistic is \< 0.05, it is highly significant. This means that, at least, one of the predictor variables is significantly related to the outcome variable.
+
+For a given the predictor, the **t-statistic** evaluates whether or not there is significant association between the predictor and the outcome variable, that is whether the beta coefficient of the predictor is significantly different from zero.
+
+The **coefficient** can be interpreted as the average effect on y of a one unit increase in predictor, holding all other predictors fixed.
+
+For model accuracy assessment, **R2** represents the proportion of variance, in the outcome variable y, that may be predicted by knowing the value of the x variables. An R2 value close to 1 indicates that the model explains a large portion of the variance in the outcome variable.
+
+The adjustment in the "**Adjusted R Square**" value in the summary output is a correction for the number of x variables included in the prediction model. The most vital difference between adjusted R-squared and R-squared is simply that adjusted R-squared considers and tests different independent variables against the model and R-squared does not.
+
+Every time you add a independent variable to a model, the R-squared increases, even if the independent variable is insignificant. It never declines. Whereas Adjusted R-squared increases only when independent variable is significant and affects dependent variable. Therefore it can be used for variable selection.
+
+```{r message=FALSE, warning=FALSE}
+columns = c("formula","r2","adj_r2") 
+result = data.frame(matrix(nrow = 0, ncol = length(columns))) 
+colnames(result) = columns
+
+formula <- "charges ~ age" 
+for(i in colnames(data %>% select(!c("age")))){
+  
+  model <- lm(formula, data = data)
+  result[nrow(result) + 1,] = c(formula,
+                                round(summary(model)$r.squared,2),
+                                round(summary(model)$adj.r.squared,2))
+  formula <-paste0(formula," + ",i)
+}
+formula <- "log(charges) ~ age" 
+for(i in colnames(data %>% select(!c("age")))){
+  
+  model <- lm(formula, data = data)
+  result[nrow(result) + 1,] = c(formula,
+                                round(summary(model)$r.squared,2),
+                                round(summary(model)$adj.r.squared,2))
+  formula <-paste0(formula," + ",i)
+}
+result
+```
+
+As all the variables are having very high F value and very less p value so indicating that all the variables are significant
+
+```{r}
+mlr1 <- lm("charges ~ .",data = data)
+summ(mlr1)
+
+anova(mlr1)
+```
+
+```{r}
+mlr2 <- lm("log(charges) ~ .",data = data)
+summ(mlr2)
+anova(mlr2)
+```
+
+To give more importance on bmi, I will create a new column for obesity.
+
+```{r}
+data$obese <- as.factor(ifelse(data$bmi >=30, "yes", "no"))
+mlr3 <- lm("log(charges) ~ .",data = data)
+summ(mlr3)
+```
+
+```{r}
+
+mlr4 <- lm("charges ~ age + sex + bmi + children + smoker + region + smoker*obese",data = data)
+summ(mlr4)
+
+```
+
+```{r}
+
+mlr5 <- lm("log(charges) ~ age + sex + bmi + children + smoker + region + smoker*obese",data = data)
+summ(mlr5)
+
+```
+
+1)  Residual vs fitted plot: The plot is used to detect non-linearity, unequal error variances, and outliers. Here we have a nonlinearity pattern so we need to try different models. There are 2 separate residual groups that have proper mean lines around zero line. Therefore, assuming that the applying 2 models for some threshold variable could be suitable. From the previous analysis, I can say that it can be "bmi" or "smoker" or some combination of both. This part requires further investigation.
+2)  Q-Q plot:It is an exploratory graphical device used to check the validity of a distributional assumption for a data set. Here again, the normality assumption violated due to end of the residuals not follow the line. Errors are deviating from normality at right corner
+
+```{r}
+mypar(4,2)
+plot(mlr1,1,lwd=2,lty=2)
+plot(mlr1,2)
+
+plot(mlr2,1,lwd=2,lty=2)
+plot(mlr2,2)
+
+plot(mlr3,1,lwd=2,lty=2)
+plot(mlr3,2)
+
+plot(mlr4,1,lwd=2,lty=2)
+plot(mlr4,2)
+```
+
+## Test-Train Split
+
+The dataset is to be split into a training dataset (80% of all data) and a testing dataset (20% of all data).
+
+```{r}
+# Split the data into training and test sets
+set.seed(42)                    # Set the seed to make the partition reproducible
+training.samples <- data$charges %>%
+  caret::createDataPartition(p = 0.8, list = FALSE)
+train <- data[training.samples, ]
+test <- data[-training.samples, ]
+```
+
+```{r}
+formula <-  "charges ~ age + sex + bmi + children + smoker + region + smoker*obese"
+model <- lm(formula, data = train)
+
+summ(model)
+```
+
+Evaluating the model
+
+```{r}
+prediction <- predict(formula, newdata = test)
+ggplot(test, aes(x = prediction, y = test$charges)) + 
+  geom_point(color = "blue", alpha = 0.7) + 
+  geom_abline(color = "red") +
+  ggtitle("Prediction vs. Real values")
+```
+
+```{r}
+
+```
